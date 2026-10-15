@@ -11,9 +11,9 @@ Most small businesses move to the cloud and then get bills full of line items no
 
 ## Watch Me Build This Lab
 
-[![Watch the Loom walkthrough](assets/thumbnails/png/post1-loom.png)]([Loom link])
+[![Watch the Loom walkthrough](assets/thumbnails/png/post1-loom.png)](https://www.loom.com/share/aeece728068f4905bcd5eccd1196f23d)
 
-[Watch the full walkthrough on Loom]([Loom link])
+[Watch the full walkthrough on Loom](https://www.loom.com/share/aeece728068f4905bcd5eccd1196f23d)
 
 ## What You Will Build
 
@@ -210,7 +210,7 @@ Nothing later in the series depends on this project.
 
 | # | Post | Thumbnail | Generic alternate |
 |---|---|---|---|
-| 1 | [Watch the walkthrough]([Loom link]) | [post1-loom](assets/thumbnails/png/post1-loom.png) | [g1-watch](assets/thumbnails/generic/png/g1-watch.png) |
+| 1 | [Watch the walkthrough](https://www.loom.com/share/aeece728068f4905bcd5eccd1196f23d) | [post1-loom](assets/thumbnails/png/post1-loom.png) | [g1-watch](assets/thumbnails/generic/png/g1-watch.png) |
 | 2 | The GitHub repo | [post2-github](assets/thumbnails/png/post2-github.png) | [g2-github](assets/thumbnails/generic/png/g2-github.png) |
 | 3 | One thing I learned | [post3-learned](assets/thumbnails/png/post3-learned.png) | [g3-learned](assets/thumbnails/generic/png/g3-learned.png) |
 | 4 | What I'd do differently | [post4-different](assets/thumbnails/png/post4-different.png) | [g4-different](assets/thumbnails/generic/png/g4-different.png) |
