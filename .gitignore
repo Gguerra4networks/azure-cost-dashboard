@@ -43,3 +43,6 @@ desktop.ini
 # Backups
 *.bak
 *.tmp
+
+# Unredacted screenshot working files, never publish
+/screenshots/

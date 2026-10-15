@@ -1,8 +1,52 @@
 # Azure Essentials Project 01 - Azure Cost Visibility Dashboard (SOP)
 
-> **DRAFT NOTE:** This draft was written from the lab guide before the build. Rows marked (expected) in Troubleshooting, and every `[Loom link]` or screenshot placeholder, get replaced with what really happens when you run it. Delete this box when the build is done.
+**Before you load your terminal:** every command in this SOP needs the variables from Step 0. Open a new VS Code terminal and run `. .\set-vars.ps1` first. If you are not signed in, run `az login --use-device-code` again.
+
+**SECURITY:** Your screenshots show your subscription ID and your email address. Blur both before they go into the README, a LinkedIn post, or the Loom video. Never show the Logic App HTTP POST URL.
 
 **Time:** 3 to 4 hours  |  **Difficulty:** Beginner  |  **Cost:** close to zero for a short lab (budgets and action groups are free; Log Analytics and Logic Apps bill per use)
+
+## Real Findings From This Build
+
+**What:** The things that actually went wrong while building this lab, and how each one was fixed.
+**Why:** Real problems and real fixes are what make a lab believable. Every item below happened on this build. Read this before Phase 7 so you do not lose an hour to them.
+
+| # | What happened | Why it happened | What fixed it |
+|---|---|---|---|
+| 1 | `Set-ExecutionPolicy` error: "set-vars.ps1 is not digitally signed" | Windows blocks unsigned scripts by default | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in that terminal. It only lasts until you close the terminal |
+| 2 | `az monitor action-group show` printed "Missing required field: -n" | The command was typed without `--name` and `--resource-group`, so the CLI had nothing to look up | Load the variables first with `. .\set-vars.ps1`, then run the command with `--name $AG --resource-group $RG` |
+| 3 | `terraform.tfvars` had the contents of `variables.tf` pasted into it | Copied the wrong file | Replace the file with only `yourname` and `alert_email` lines |
+| 4 | Office 365 Outlook returned **401 Unauthorized** | The tenant has no Exchange Online mailbox, so there is nothing for the connector to sign in to | Use the Gmail connector instead |
+| 5 | Gmail returned **403 insufficient scopes** | The first sign-in did not tick every permission box on Google's consent screen | Sign in again and tick **all** the permission boxes |
+| 6 | The Logic App URL variable stayed empty | `Read-Host` showed a prompt label, and the URL was pasted in as the label text instead of at the prompt | Type the prompt, press Enter, then paste at the hidden input. Better: skip this path and use the portal route in Phase 7 |
+| 7 | `az monitor action-group update` created a broken receiver | On Windows, the signed URL contains `&`, and `cmd.exe` splits the command at every `&`, so only the first part of the URL reached Azure | Register the Logic App through the portal (Phase 7, portal route). Do not use the CLI route on Windows |
+| 8 | The signed Logic App URL showed up in a chat three times | It was pasted while troubleshooting | The Logic App access key was rotated once. After any rotation, re-save the action group's Logic App action, because it stores the signed URL |
+| 9 | Terraform now disagrees with Azure | The Logic App receiver, the workbook, and the Gmail connection were all added by hand in the portal | Do not run `terraform apply` again. See "Terraform Drift" below and the Clean Up section |
+| 10 | The workbook's workspace picker showed "0 selected" and "No items of this type" | The picker only searches the workbook's own scope until you ask for more | Tick **Load all subscriptions**, or open the workbook from the workspace's own **Monitoring, then Workbooks** menu so the scope is already set |
+| 11 | The Visualization list had no option called Table | Workbooks calls the table view **Grid** | Pick **Grid** |
+| 12 | No way to chart dollar spend in Logs | Cost data is not in Log Analytics, and the `AzureActivity` table holds operations, not prices | Chart activity, list resource groups, and link to Cost Analysis for dollars |
+| 13 | The Resource Graph grid listed every resource group in the subscription | `resourcecontainers` returns the whole subscription | Add `| where resourceGroup contains "cost-dashboard"` before the `project` line |
+| 14 | The action group email verification link said "Verification failed, link is no longer valid" | The link expires, and saving the action group again can invalidate older ones | Click **Resend verification emails** on the action group page and use the newest message. The status changes from Pending to Verified |
+| 15 | The budget list on the resource group page said "You do not have any budgets" | Budgets belong to the subscription, not the resource group | Switch the Cost Management scope to the subscription |
+
+### Terraform Drift (portal changes versus infrastructure as code)
+
+**What:** Terraform wrote the action group with only the email receiver. The Logic App receiver was added later in the portal.
+**Why this matters:** Terraform compares its state file to the code, not to what you did by hand. If you run `terraform plan` now, it will likely show the action group changing to **remove** the Logic App receiver, because the code does not list it. If you then run `apply`, the alert chain silently breaks.
+
+**Rule:** After Phase 7, do not run `terraform apply`. Run only `terraform destroy` at Clean Up. For a production build, you would add the receiver to `main.tf` (a `logic_app_receiver` block) so the code and the portal agree.
+
+## Where to Click (Portal Map)
+
+These are the places people get lost. Each one is a real question that came up during this build.
+
+**Azure Monitor:** Click the search bar at the top of the portal, type `Monitor`, and pick **Monitor** from the Services results. In the left menu you will see Activity log, Alerts, Metrics, Logs, and **Workbooks**.
+
+**Workbooks (shortcut, the one that worked):** Open your Log Analytics workspace `law-cost-giovanni` and click **Workbooks** in its left menu. A workbook started from there already points at your workspace, so you skip choosing a scope.
+
+**Action group Actions table:** Search for **Action groups**, open `ag-cost-alerts-giovanni`, and click the **Actions** tab. The table shows Type, Name, Value, and Managed identity. For this build it shows `Logic App`, `la-webhook`, `la-cost-alert-giovanni`, `None`. Take screenshots of the table only. Do not click into the row, because the detail pane can show the signed URL.
+
+**Logic App Run history:** Open the resource group, click `la-cost-alert-giovanni`, then click **Run history** (the tab next to Get started and Trigger history). Press Refresh if it is empty, because it can lag about 30 seconds.
 
 ## What You Are Building
 
@@ -412,7 +456,7 @@ terraform output
 az resource list --resource-group $RG --output table
 ```
 
-**NOTE:** The list shows 3 resources: the workspace, the action group, and the Logic App. The budget and the diagnostic setting belong to the whole subscription, not the resource group, so they will not appear here.
+**NOTE:** The list shows 3 resources: the workspace, the action group, and the Logic App. The budget and the diagnostic setting belong to the whole subscription, not the resource group, so they will not appear here. Your screenshot of the resource group matches this. After Phase 7 you will also see a Gmail connection resource named `gmail`, because the Logic App created it when you signed in.
 
 ## Phase 7 - Build the Logic App Steps and Connect It
 
@@ -425,17 +469,21 @@ az resource list --resource-group $RG --output table
 2. Click the Logic App `la-cost-alert-giovanni`.
 3. In the left menu, click **Logic app designer**.
 4. Click **Add a trigger**, search for **HTTP**, and choose **When a HTTP request is received**.
-5. Click Save. The **HTTP POST URL** now appears in the trigger. Copy it.
-6. Click **+ New step**, search for **Office 365 Outlook**, and choose **Send an email (V2)**.
-7. Sign in when asked.
-8. Fill in To (your alert email), Subject (`Azure Cost Alert - Budget Threshold Reached`), and Body (Add dynamic content, then the Body from the HTTP trigger).
-9. Click Save.
+5. Click **Save** at the top. The **HTTP POST URL** says "URL will be generated after save" until you do. After saving, copy the URL.
+6. Click the **+** under the trigger, then **Add an action**. In the search box, look for the email connector you can sign in to (see the NOTE below), and choose **Send email (V2)**.
+7. Sign in when asked and allow the connection.
+8. Fill in To (your alert email), Subject (`Azure Cost Alert - Budget Threshold Reached`), and Body. Click in the Body box, choose **Add dynamic content**, and pick the **Body** from the HTTP trigger. If the Body box stays empty, the email arrives blank.
+9. Click **Save** again.
 
-**NOTE:** The Office 365 Outlook step needs a work or school mailbox. A tenant that only has a personal sign-in may fail here. If it does, use the Gmail or another email connector instead and write that in your build notes.
+**NOTE:** In this build, Office 365 Outlook was tried first and failed with a **401** because the tenant has no Exchange Online mailbox. Gmail was used instead. The **Gmail** connector, **Send email (V2)**, works with a personal Google account. The first Gmail sign-in then failed with a **403 insufficient scopes**, because not every permission box was ticked. Sign in again and tick **all** the boxes. Both connectors look the same in the designer, so the steps above are identical.
+
+**NOTE:** The designer shows a blue banner saying "You are using the previous Logic Apps experience." That is normal for a Consumption Logic App. Do not click Switch to preview experience in the middle of the lab, because the screens change.
 
 **SECURITY:** The HTTP POST URL contains a secret signature (the `sig=` part). Anyone who has it can trigger your Logic App. Never paste it into a file, a screenshot, or a post.
 
-### Azure CLI path
+### Azure CLI path (did not work on Windows in this build)
+
+**WARNING:** On Windows, `az` hands the command through `cmd.exe`, which splits the signed URL at every `&`. Azure received a cut-off URL and saved a broken receiver. This route can work on Mac or Linux. On Windows, skip to the portal route below.
 
 Get the Logic App's ID.
 
@@ -465,7 +513,22 @@ Clear the secret from your terminal.
 Remove-Variable CALLBACK
 ```
 
-**Verify:**
+### Portal route (this is what worked)
+
+**What:** Add the Logic App to the action group by clicking, with no command involved.
+**Why:** The portal sends the URL to Azure directly, so nothing splits it.
+
+1. Search for **Action groups** and open `ag-cost-alerts-giovanni`.
+2. Click **Edit action group**, then the **Actions** tab.
+3. Set **Action type** to **Logic App**, name it `la-webhook`, and pick `la-cost-alert-giovanni`.
+4. Leave the **Identity** dropdown on **Select**. It is optional and not needed here.
+5. Click **OK**, then **Save changes**. You should see a green **Action group updated successfully** message.
+
+If an earlier CLI attempt left a broken receiver, delete that row first, then add the new one.
+
+**Verify (both routes):**
+
+**NOTE:** Run `. .\set-vars.ps1` first. Without `$AG` and `$RG` loaded, the command fails with "Missing required field: -n". Use this filtered version only. A plain `show` prints the signed callback URL.
 
 ```powershell
 az monitor action-group show --name $AG --resource-group $RG --query "{emails:emailReceivers[].emailAddress, logicApps:logicAppReceivers[].name}" --output json
@@ -473,17 +536,58 @@ az monitor action-group show --name $AG --resource-group $RG --query "{emails:em
 
 You should see your email under `emails` and `la-webhook` under `logicApps`.
 
-**Test it:** In the portal, open the action group `ag-cost-alerts-giovanni`, click **Test action group**, pick a sample type, and run it. This proves the email path works without waiting for real spend.
+### Step 7b - Verify the action group email
+
+**What:** Click the confirmation link Azure emailed to your alert address.
+**Why:** Azure will not send alerts to an address until its owner confirms it. Your action group page currently shows the email as **Pending**, which means the budget alerts would go nowhere.
+
+1. Open the inbox for the alert email and find the message from Microsoft Azure about the action group. Check spam if it is not there.
+2. Click the verification link in that message.
+3. In the portal, open `ag-cost-alerts-giovanni`. The email row should change from Pending to **Verified**. If it still says Pending, click **Resend verification emails** and try again.
+
+**NOTE:** The Logic App path does not need verification. Only the plain email receiver does.
+
+### Step 7c - Test it
+
+**What:** Fire a fake alert through the action group.
+**Why:** Real budget alerts only fire after real spending, so this is the only way to prove the chain works today.
+
+1. In the portal, open the action group `ag-cost-alerts-giovanni` and click **Test**.
+2. Pick **Budget** or **Cost** if offered, otherwise any sample type, and click **Test**.
+3. Wait one or two minutes. When it finishes, both rows should say **Success**. You should get a plain alert email, and a second email sent by the Logic App.
+
+**What the tests showed:**
+- **Oct 12, first test:** the Logic App row said **Success** (3 seconds), and the Email row said **Unknown**. That is what an unverified email address looks like. Verifying the address in Step 7b fixed it.
+- **Oct 13, second test (9:30 PM):** both emails arrived. The action group sent "Delivery Confirmation: This is a sample budget alert from Azure Monitor Action Groups" (sample alert name `test-budgetAlertRule`, Sev4, fake IDs). The Logic App sent "Azure Cost Alert - Budget Threshold Reached". Run history shows a **Succeeded** run for 10/13 9:30 PM (2.31 seconds), with two earlier Succeeded runs from Oct 12.
+
+**NOTE:** The Logic App email body is the raw JSON the action group sent. It proves the chain works. To make it readable, pick individual fields from the dynamic content list instead of the whole Body.
+
+4. Open the Logic App, then **Overview**, then **Run history**. You should see one run marked **Succeeded**.
+
+If the Logic App run fails, click the run and open the failed step. The most common cause is the Gmail sign-in expiring, which you fix under API connections.
 
 ## Phase 8 - Build the Dashboard in Azure Workbooks
 
 **What:** Make a saved dashboard in the Azure portal.
-**Why:** This is the part the business owner actually looks at.
+**Why:** This is the part the business owner actually looks at. It is the one piece Terraform does not build, so you make it by hand.
+
+**Prerequisite:** Phase 7 is finished. The activity log chart in Step 8c needs the diagnostic setting from Terraform, and it can take 15 to 30 minutes after the deploy before the first rows show up. You deployed on Oct 9, so the data should already be there.
+
+### Step 8a - Open a new workbook
+
+**What:** Open a blank workbook, which is like a blank page for your dashboard.
+**Why:** You need an empty page first, because every chart and table in Steps 8b to 8d gets added to it.
 
 1. In the portal, search for **Monitor** and open it.
 2. In the left menu, click **Workbooks**, then **+ New**.
-3. Click **+ Add**, then **Add query**.
-4. Set Data source to **Azure Resource Graph** and paste this query:
+
+### Step 8b - Add a Resource Graph table
+
+**What:** A table that lists the resource groups in the subscription.
+**Why:** It proves the workbook can read from your subscription.
+
+1. Click **+ Add**, then **Add query**.
+2. Set Data source to **Azure Resource Graph** and paste this query:
 
 ```
 resourcecontainers
@@ -491,22 +595,66 @@ resourcecontainers
 | project resourceGroup, location
 ```
 
-5. Click **Run Query** to check it works, then **Done Editing**.
-6. Click **+ Add**, then **Add metric**. Pick your subscription and look for **Cost Management** as the resource type.
-7. Click **Save**, name it `Cost Visibility Dashboard`, choose your resource group, and click Apply.
+3. Click **Run Query** to check it works, then **Done Editing**.
 
-**NOTE:** The Resource Graph query above lists resource groups, not dollars. The portal's metric picker may also not offer Cost Management as a resource type. Write down exactly what you see. If dollars are not available there, use the portal's **Cost analysis** page for the actual spend and note it in your build notes.
+### Step 8c - Add an activity log chart
+
+**What:** A chart of what happened in your subscription over the last 7 days.
+**Why:** This reads the data your diagnostic setting sends to Log Analytics, so it shows the whole pipeline working from end to end.
+
+1. Click **+ Add**, then **Add query**.
+2. Set Data source to **Logs**, Resource type to **Log Analytics**, and pick the workspace `law-cost-giovanni`.
+3. Paste this query:
+
+```
+AzureActivity
+| where TimeGenerated > ago(7d)
+| summarize Operations = count() by bin(TimeGenerated, 1d)
+| order by TimeGenerated asc
+```
+
+4. Set Visualization to **Bar chart** or **Time chart**, click **Run Query**, then **Done Editing**.
+
+**NOTE:** If the result says the table does not exist or is empty, wait 15 minutes and run it again. If it is still empty after an hour, open Monitor, then Activity log, then Export Activity Logs, and confirm the setting `diag-sub-to-law` points at your workspace.
+
+### Step 8d - Add a link to real spending
+
+**What:** A text tile that sends the owner to the Cost analysis page.
+**Why:** Workbooks cannot read dollar amounts the way Cost analysis can. The Resource Graph query above lists resource groups, not dollars, and the metric picker may not offer Cost Management as a resource type. Rather than fight that, link to the page that has the real numbers.
+
+1. Click **+ Add**, then **Add text**.
+2. Type: `For actual spend, open Cost Management, then Cost analysis.`
+3. Click **Done Editing**.
+
+Write down exactly what you see if you try **Add metric** and Cost Management is missing. That is a real finding for your build notes.
+
+### Step 8e - Save it
+
+**What:** Save the dashboard into your resource group.
+**Why:** A workbook you do not save disappears when you close the tab. Saving keeps your work and lets the business owner open it later.
+
+1. Click **Save** at the top.
+2. Name it `Cost Visibility Dashboard`, pick your subscription and resource group `rg-cost-dashboard-giovanni`, and click **Apply**.
+
+**Verify:** In Monitor, then Workbooks, you should see `Cost Visibility Dashboard` listed. Open it and confirm both queries show results.
+
+**NOTE:** A workbook you save into the resource group is a real resource that Terraform does not know about. This is why Clean Up has you look at the group before running `terraform destroy`.
 
 ## Phase 9 - Final Verification
 
-Work down this list. Every line should be true.
+**What:** A final checklist that proves every piece of the lab exists and works.
+**Why:** A lab is only done when you have checked it. It is much easier to find a broken piece now than later, in front of a camera or an interviewer.
 
-- Resource group `rg-cost-dashboard-giovanni` exists
-- Budget `budget-cost-giovanni` shows in Cost Management, then Budgets
-- Action group `ag-cost-alerts-giovanni` exists in Monitor, then Alerts, then Action groups
-- Logic App `la-cost-alert-giovanni` shows Enabled, and its designer shows an HTTP trigger plus a Send email step
-- Log Analytics workspace `law-cost-giovanni` exists
-- The workbook is saved and visible in Monitor, then Workbooks
+Work down this list. Every line should be true. Check each box as you go.
+
+- [ ] Resource group `rg-cost-dashboard-giovanni` exists
+- [ ] Budget `budget-cost-giovanni` shows in Cost Management, then Budgets, with alerts at 25, 50, and 100 percent
+- [ ] Action group `ag-cost-alerts-giovanni` exists in Monitor, then Alerts, then Action groups
+- [ ] The action group email shows **Verified**, not Pending
+- [ ] Logic App `la-cost-alert-giovanni` shows Enabled, and its designer shows an HTTP trigger plus a Send email step
+- [ ] Test action group sent an email, and the Logic App run history shows Succeeded
+- [ ] Log Analytics workspace `law-cost-giovanni` exists
+- [ ] The workbook is saved and visible in Monitor, then Workbooks
 
 ```powershell
 az consumption budget show --budget-name $BUDGET --output table
@@ -516,14 +664,26 @@ az consumption budget show --budget-name $BUDGET --output table
 
 ## Troubleshooting
 
+**What:** A list of the errors and surprises that came up, with the cause and the fix for each.
+**Why:** Errors are normal in cloud work. If you know the usual causes, you can fix them in minutes instead of hours.
+
 | Error or symptom | Cause | Fix |
 |---|---|---|
-| `BudgetStartDateInvalid` (expected) | The start date was not the first day of the current or a future month. | Set `budget_start_date` in `variables.tf` to the first of this month, then run `terraform apply` again. |
-| `AuthorizationFailed` on the budget (expected) | Your account lacks permission to create budgets. | Run `az role assignment create --role "Cost Management Contributor" --assignee $(az ad signed-in-user show --query id --output tsv) --scope /subscriptions/$(az account show --query id --output tsv)`. |
-| Outlook step will not sign in (expected) | Office 365 needs a work or school mailbox, and sign-in must happen in the portal. | Sign in through the designer. Terraform cannot do this step. If the tenant has no mailbox, use a Gmail connector. |
-| `az monitor action-group update` rejects the arguments (expected) | The original guide's command had an extra name. | Use `--add-action logicapp la-webhook $LA_ID $CALLBACK` exactly as in Phase 7. |
-| No alert email arrives (expected) | Budget alerts only fire after real spend crosses a line. | Use **Test action group** in the portal to prove the email path. |
-| `terraform destroy` stops because the group still has resources (expected) | The workbook and the Outlook connection were made in the portal, so Terraform does not know about them. | Follow the Clean Up section: list the group, delete the extras, then destroy. |
+| `BudgetStartDateInvalid` (expected, did not happen: the budget deployed with the 2026-10-01 default) | The start date was not the first day of the current or a future month. | Set `budget_start_date` in `variables.tf` to the first of this month, then run `terraform apply` again. |
+| `AuthorizationFailed` on the budget (expected, did not happen) | Your account lacks permission to create budgets. | Run `az role assignment create --role "Cost Management Contributor" --assignee $(az ad signed-in-user show --query id --output tsv) --scope /subscriptions/$(az account show --query id --output tsv)`. |
+| Office 365 Outlook step will not work (happened in this build) | Office 365 Outlook needs a work or school mailbox, and a personal-only sign-in cannot use it. | Use the **Gmail** connector, **Send email (V2)**, instead. Sign in through the designer. Terraform cannot do this step. |
+| HTTP POST URL box says "URL will be generated after save" (happened in this build) | The trigger has not been saved yet. | Click **Save** in the designer, then copy the URL that appears. |
+| Test action group shows the Email row as **Unknown** while the Logic App row shows Success (happened in this build) | The email receiver is still unverified, so Azure cannot confirm delivery. | Complete Step 7b, then run the test again. |
+| Action group email says **Pending** (happened in this build) | Azure waits for you to click the verification link it emailed. | Open the email, click the link, then refresh the page. Use **Resend verification emails** if it is missing. |
+| `az monitor action-group show` says `Missing required field: -n` (happened in this build) | The command ran without `--name` and `--resource-group`, or the variables were never loaded in this terminal. | Run `. .\set-vars.ps1`, then run the command with `--name $AG --resource-group $RG`. |
+| `az monitor action-group update` saves a broken Logic App receiver (happened in this build) | On Windows, `cmd.exe` splits the signed URL at every `&`. | Delete the broken receiver and re-add the Logic App through the portal (Phase 7, portal route). |
+| Gmail step fails with 403 insufficient scopes (happened in this build) | Not every permission box was ticked on Google's consent screen. | Sign in to the connection again and tick all the permission boxes. |
+| Office 365 Outlook step fails with 401 (happened in this build) | The tenant has no Exchange Online mailbox. | Use the Gmail connector. |
+| `terraform plan` wants to remove the Logic App receiver (expected) | The receiver was added in the portal, so the code does not list it. | Do not run `apply`. Go straight to Clean Up when you finish. See Terraform Drift. |
+| `az monitor action-group update` rejects the arguments (expected, did not happen: the command ran and the check shows `la-webhook`) | The original guide's command had an extra name. | Use `--add-action logicapp la-webhook $LA_ID $CALLBACK` exactly as in Phase 7. |
+| No alert email arrives (expected) | Budget alerts only fire after real spend crosses a line, and the plain email receiver must be verified first. | Verify the email (Step 7b), then use **Test** in the portal (Step 7c) to prove the email path. |
+| Workbook chart says the `AzureActivity` table is missing or empty (expected) | The diagnostic setting was only just created, so Log Analytics has no rows yet. | Wait 15 to 30 minutes and run the query again. Confirm `diag-sub-to-law` points at `law-cost-giovanni`. |
+| `terraform destroy` stops because the group still has resources (expected) | The workbook and the Gmail connection were made in the portal, so Terraform does not know about them. | Follow the Clean Up section: list the group, delete the extras, then destroy. |
 
 ## Clean Up
 
@@ -534,7 +694,9 @@ az consumption budget show --budget-name $BUDGET --output table
 az resource list --resource-group $RG --output table
 ```
 
-Anything listed that is not the workspace, action group, or Logic App was made in the portal (the workbook and the Office 365 connection). Delete those in the portal first: open each one and click Delete.
+Anything listed that is not the workspace, action group, or Logic App was made in the portal (the workbook and the Gmail connection named `gmail`). Delete those in the portal first: open each one and click Delete.
+
+**NOTE:** Do not run `terraform apply` before this point. The Logic App receiver on the action group was added in the portal, so Terraform would try to remove it. `terraform destroy` is safe, because it deletes the whole group either way.
 
 ```powershell
 terraform destroy
@@ -557,7 +719,52 @@ You should see `false`.
 | Resource group | `rg-cost-dashboard-giovanni` | Holds the project |
 | Budget | `budget-cost-giovanni` | $200 per month, alerts at $50, $100, $200 |
 | Action group | `ag-cost-alerts-giovanni` | Email plus Logic App webhook |
-| Logic App | `la-cost-alert-giovanni` | Formats and sends the alert email |
+| Logic App | `la-cost-alert-giovanni` | HTTP trigger plus a Gmail Send email (V2) step that sends the alert email |
 | Log Analytics | `law-cost-giovanni` | Stores 30 days of activity data |
 | Diagnostic setting | `diag-sub-to-law` | Sends the activity log to Log Analytics |
 | Workbook | Cost Visibility Dashboard | Dashboard in Azure Monitor (portal only) |
+
+## Acronyms and Terms
+
+**What:** A list of the short names and special words used in this lab.
+**Why:** Cloud work is full of abbreviations. If a word looks strange, look it up here instead of guessing. The short names come first, then the special words.
+
+| Term | Stands for | In plain words |
+|---|---|---|
+| AG | Action Group | A short name used in commands. `$AG` holds the name of your action group, so you do not have to retype it. |
+| API | Application Programming Interface | A set of rules that lets one program talk to another. Terraform uses Azure's API to build things for you. |
+| CLI | Command-Line Interface | A way to control a program by typing commands instead of clicking. The Azure CLI command is `az`. |
+| GB | Gigabyte | A measure of how much data is stored. |
+| HTTP | HyperText Transfer Protocol | The language that web pages and web services use to talk to each other. |
+| ID | Identification | A unique number or name that points to exactly one thing, like a subscription ID. |
+| IT | Information Technology | Computers, networks, and the people who keep them working. |
+| JSON | JavaScript Object Notation | A neat text format that stores information as labels and values. |
+| POST | HTTP POST | A kind of web message that carries information to an address. Azure sends a POST to hand the alert to the Logic App. |
+| RG | Resource Group | A short name used in commands. `$RG` holds the name of your resource group. |
+| SOP | Standard Operating Procedure | A step by step instruction sheet that anyone can follow. |
+| URL | Uniform Resource Locator | A web address. |
+| V2 | Version 2 | The second version of something. "Send email (V2)" is the newer version of the Send email step. |
+| VS Code | Visual Studio Code | A free program for writing and editing code and text files. |
+| Azure | - | Microsoft's cloud. That means computers and services you rent over the internet instead of owning. |
+| Subscription | - | Your Azure account for billing. Everything you build is billed to it. |
+| Tenant | - | Your organization's private space inside Microsoft's sign-in system. |
+| Resource group | - | A folder that holds all the pieces of one project, so you can manage or delete them together. |
+| Terraform | - | A tool where you write what you want in text files and it builds it for you. |
+| Infrastructure as code | - | Describing your cloud setup in files, so you can rebuild the exact same thing any time. |
+| Budget | - | A monthly spending limit in Azure. It warns you when spending gets close. It does not stop the spending. |
+| Alert | - | A message that says something needs your attention, like spending just hit $50. |
+| Action group | - | A list of who or what to tell when an alert goes off. |
+| Logic App | - | A small automation that does steps for you. Here, when it gets the alert, it sends an email. |
+| Connector | - | A ready-made piece that lets a Logic App talk to another service, like Gmail. |
+| Webhook | - | A web address that another program can send a message to, so it starts something. |
+| Signed URL | - | A web address with a secret password built into it (the `sig=` part). Anyone who has it can use it, so never share it. |
+| Log Analytics workspace | - | A storage place where logs are kept so you can search them. |
+| Diagnostic setting | - | A switch that sends activity records to the place that stores them. |
+| Activity log | - | A diary of what happened in your Azure subscription. |
+| Workbook | - | A dashboard page in Azure Monitor made of charts and tables. |
+| Dashboard | - | One page that shows the important numbers so you can see them at a glance. |
+| State file | - | Terraform's notebook of what it built (`terraform.tfstate`). Never share it, because it can hold private details. |
+| Drift | - | What happens when someone changes a thing by hand in the portal, so it no longer matches the code. |
+| Apply and destroy | - | `terraform apply` builds what your files describe. `terraform destroy` deletes all of it. |
+| Device code sign in | - | Signing in by typing a short code on a web page, instead of using a popup window. |
+| Redact | - | Covering up private details in a screenshot, so nobody can read them. |
